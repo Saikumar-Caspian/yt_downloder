@@ -189,8 +189,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ This video cannot be downloaded due to YouTube restrictions."
         )
-    except Exception:
-        await update.message.reply_text("❌ Processing failed due to an internal error.")
+     except Exception as e:
+      print("INTERNAL ERROR:", repr(e))
+      await update.message.reply_text(
+        f"❌ Internal error:\n{repr(e)}"
+    )
     finally:
         DOWNLOAD_LOCK = False
 
