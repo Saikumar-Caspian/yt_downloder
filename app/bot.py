@@ -12,24 +12,28 @@ from telegram.ext import (
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
+# ================= CONFIG =================
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# In-memory state & lock
-USER_STATE = {}
-DOWNLOAD_LOCK = False
-
-# Limits
-MAX_DURATION_SECONDS = 60 * 30  # 30 minutes
-MAX_FILE_BYTES = 45 * 1024 * 1024  # Telegram safe limit
 
 BASE_DIR = os.path.expanduser("~/yt_downloder")
 TMP_DIR = os.path.join(BASE_DIR, "tmp")
 COOKIES_FILE = os.path.join(BASE_DIR, "config", "cookies.txt")
 
+MAX_DURATION_SECONDS = 60 * 30  # 30 minutes
+MAX_FILE_BYTES = 45 * 1024 * 1024  # Telegram safe limit
+
+# ==========================================
+
+USER_STATE = {}
+DOWNLOAD_LOCK = False
+
 
 def is_youtube_link(text: str) -> bool:
     return "youtube.com" in text or "youtu.be" in text
 
+
+# ---------------- METADATA ----------------
 
 def fetch_metadata(url: str) -> dict:
     ydl_opts = {
@@ -42,6 +46,8 @@ def fetch_metadata(url: str) -> dict:
         return ydl.extract_info(url, download=False)
 
 
+# ---------------- UPLOAD ------------------
+
 def upload_and_get_link(file_path: str) -> str:
     with open(file_path, "rb") as f:
         r = requests.post("https://file.io", files={"file": f}, timeout=60)
@@ -50,6 +56,8 @@ def upload_and_get_link(file_path: str) -> str:
         raise RuntimeError("Upload failed")
     return data["link"]
 
+
+# ---------------- DOWNLOAD ----------------
 
 def download_media(url: str, choice: str) -> str:
     uid = str(uuid.uuid4())
@@ -99,6 +107,8 @@ def download_media(url: str, choice: str) -> str:
     return filename
 
 
+# ---------------- BOT HANDLERS ------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USER_STATE.pop(update.effective_user.id, None)
     await update.message.reply_text("Send me a YouTube link.")
@@ -110,7 +120,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    # Step 1: Link
+    # Step 1 — Get link
     if user_id not in USER_STATE:
         if not is_youtube_link(text):
             await update.message.reply_text("Please send a valid YouTube link.")
@@ -125,7 +135,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Choose format:", reply_markup=keyboard)
         return
 
-    # Step 2: Format
+    # Step 2 — Choose format
     if text not in ("MP3", "MP4 480p", "MP4 1080p"):
         await update.message.reply_text("Please choose a valid option.")
         return
@@ -150,11 +160,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = fetch_metadata(link)
     except DownloadError:
         await update.message.reply_text(
-            "❌ This video is unavailable or restricted by YouTube.\n"
-            "Please try another link."
+            "❌ This video is unavailable or restricted by YouTube."
         )
         return
-    except Exception:
+    except Exception as e:
+        print("METADATA ERROR:", repr(e))
         await update.message.reply_text("Failed to fetch video information.")
         return
 
@@ -189,14 +199,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ This video cannot be downloaded due to YouTube restrictions."
         )
-     except Exception as e:
-      print("INTERNAL ERROR:", repr(e))
-      await update.message.reply_text(
-        f"❌ Internal error:\n{repr(e)}"
-    )
+
+    except Exception as e:
+        print("INTERNAL ERROR:", repr(e))
+        await update.message.reply_text(
+            f"❌ Internal error:\n{repr(e)}"
+        )
+
     finally:
         DOWNLOAD_LOCK = False
 
+
+# ---------------- MAIN --------------------
 
 def main():
     if not BOT_TOKEN:
