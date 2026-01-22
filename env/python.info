@@ -1,0 +1,4 @@
+PYTHON_VERSION=3.10.x
+VENV_PATH=~/tg-runtime/venv
+PIP_VERSION=23.x
+PURPOSE=isolated-runtime

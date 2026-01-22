@@ -1,0 +1,14 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Secrets
+config/bot.env
+
+# Runtime
+logs/
+tmp/
+
+# OS
+.DS_Store

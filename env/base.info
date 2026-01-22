@@ -1,0 +1,5 @@
+OS=ubuntu
+VERSION=22.04
+ARCH=x86_64
+PURPOSE=telegram-bot-runtime
+STAGE=development
