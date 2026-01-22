@@ -10,6 +10,7 @@ from telegram.ext import (
     filters,
 )
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -23,6 +24,7 @@ MAX_FILE_BYTES = 45 * 1024 * 1024  # Telegram safe limit
 
 BASE_DIR = os.path.expanduser("~/yt_downloder")
 TMP_DIR = os.path.join(BASE_DIR, "tmp")
+COOKIES_FILE = os.path.join(BASE_DIR, "config", "cookies.txt")
 
 
 def is_youtube_link(text: str) -> bool:
@@ -30,13 +32,19 @@ def is_youtube_link(text: str) -> bool:
 
 
 def fetch_metadata(url: str) -> dict:
-    with YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+    ydl_opts = {
+        "quiet": True,
+        "skip_download": True,
+        "cookiefile": COOKIES_FILE,
+        "nocheckcertificate": True,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
 
 def upload_and_get_link(file_path: str) -> str:
     with open(file_path, "rb") as f:
-        r = requests.post("https://file.io", files={"file": f})
+        r = requests.post("https://file.io", files={"file": f}, timeout=60)
     data = r.json()
     if not data.get("success"):
         raise RuntimeError("Upload failed")
@@ -47,11 +55,18 @@ def download_media(url: str, choice: str) -> str:
     uid = str(uuid.uuid4())
     outtmpl = os.path.join(TMP_DIR, f"{uid}.%(ext)s")
 
+    base_opts = {
+        "outtmpl": outtmpl,
+        "quiet": True,
+        "cookiefile": COOKIES_FILE,
+        "nocheckcertificate": True,
+        "merge_output_format": "mp4",
+    }
+
     if choice == "MP3":
         ydl_opts = {
+            **base_opts,
             "format": "bestaudio/best",
-            "outtmpl": outtmpl,
-            "quiet": True,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -63,18 +78,14 @@ def download_media(url: str, choice: str) -> str:
 
     elif choice == "MP4_480":
         ydl_opts = {
+            **base_opts,
             "format": "bv*[height<=480]+ba/b",
-            "merge_output_format": "mp4",
-            "outtmpl": outtmpl,
-            "quiet": True,
         }
 
     else:  # MP4_1080
         ydl_opts = {
+            **base_opts,
             "format": "bv*[height<=1080]+ba/best",
-            "merge_output_format": "mp4",
-            "outtmpl": outtmpl,
-            "quiet": True,
         }
 
     with YoutubeDL(ydl_opts) as ydl:
@@ -137,8 +148,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         info = fetch_metadata(link)
+    except DownloadError:
+        await update.message.reply_text(
+            "❌ This video is unavailable or restricted by YouTube.\n"
+            "Please try another link."
+        )
+        return
     except Exception:
-        await update.message.reply_text("Failed to fetch metadata.")
+        await update.message.reply_text("Failed to fetch video information.")
         return
 
     if info.get("duration", 0) > MAX_DURATION_SECONDS:
@@ -153,10 +170,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         size = os.path.getsize(file_path)
 
         if choice == "MP4_1080" or size > MAX_FILE_BYTES:
-            await update.message.reply_text("Uploading 1080p video…")
+            await update.message.reply_text("Uploading video…")
             link_url = upload_and_get_link(file_path)
             await update.message.reply_text(
-                f"🎥 1080p video ready\n🔗 Download link:\n{link_url}"
+                f"🎥 Video ready\n🔗 Download link:\n{link_url}"
             )
         else:
             with open(file_path, "rb") as f:
@@ -168,8 +185,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         os.remove(file_path)
 
-    except Exception as e:
-        await update.message.reply_text("Processing failed.")
+    except DownloadError:
+        await update.message.reply_text(
+            "❌ This video cannot be downloaded due to YouTube restrictions."
+        )
+    except Exception:
+        await update.message.reply_text("❌ Processing failed due to an internal error.")
     finally:
         DOWNLOAD_LOCK = False
 
